@@ -123,7 +123,7 @@ first_user_in_queue = db.prepare <<-SQL
     LIMIT 1
 SQL
 delete_from_queue = db.prepare('DELETE FROM queue WHERE id == ?')
-add_edge = db.prepare('INSERT INTO edges VALUES (?, ?)')
+add_edge = db.prepare('REPLACE INTO edges VALUES (?, ?)')
 is_in_users = db.prepare('SELECT EXISTS (SELECT * FROM users WHERE id == ?)')
 add_user = db.prepare('INSERT INTO users (id, distance) VALUES (?, ?)')
 add_to_queue = db.prepare('INSERT INTO queue (user_id) VALUES (?)')
@@ -152,10 +152,7 @@ loop do # キューが空になるまで繰り返す
     # 各相互フォロワー `w` について
     ff.each do |w|
       # 辺リストに追加
-      begin
-        add_edge.execute(*[v, w].sort)
-      rescue SQLite3::ConstraintException
-      end
+      add_edge.execute(*[v, w].sort)
       if is_in_users.execute(w).first == [0] # 未探索ならば
         add_user.execute(w, d + 1) # 頂点集合と
         add_to_queue.execute(w) # キューに追加
