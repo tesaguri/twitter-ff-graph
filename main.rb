@@ -135,9 +135,6 @@ loop do # キューが空になるまで繰り返す
   break unless user # キューが空なら終了
 
   db.transaction do
-    # 実際にキューの先頭を削除
-    delete_from_queue.execute(queue_id)
-
     STDERR.puts("inspecting user: #{v}, d = #{d}")
 
     # `v` の相互フォローのアカウントを集める
@@ -164,5 +161,8 @@ loop do # キューが空になるまで繰り返す
         add_to_queue.execute(w) # キューに追加
       end
     end
+
+    # 実際にキューの先頭を削除
+    delete_from_queue.execute(queue_id)
   end
 end
