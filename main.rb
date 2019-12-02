@@ -133,7 +133,7 @@ pop_queue = db.prepare('DELETE FROM queue where id == (SELECT MIN(id) FROM queue
 loop do # キューが空になるまで繰り返す
   # キューの先頭の頂点を読む（まだ取り除かない）
   (v, d, queue_id) = first_user_in_queue.execute.first
-  break unless user # キューが空なら終了
+  break unless v # キューが空なら終了
 
   db.transaction do
     STDERR.puts("inspecting user: #{v}, d = #{d}")
