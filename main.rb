@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
 
 # Twitter 上のあるアカウントから出発し、その相互フォロー関係を幅優先でたどって辺リストを得る。
 
