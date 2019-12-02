@@ -122,11 +122,11 @@ first_user_in_queue = db.prepare <<-SQL
     ORDER BY queue.id ASC
     LIMIT 1
 SQL
-delete_from_queue = db.prepare('DELETE FROM queue WHERE id == ?')
 add_edge = db.prepare('REPLACE INTO edges VALUES (?, ?)')
 is_in_users = db.prepare('SELECT EXISTS (SELECT * FROM users WHERE id == ?)')
 add_user = db.prepare('INSERT INTO users (id, distance) VALUES (?, ?)')
 add_to_queue = db.prepare('INSERT INTO queue (user_id) VALUES (?)')
+pop_queue = db.prepare('DELETE FROM queue where id == (SELECT MIN(id) FROM queue)')
 
 # 探索のメインループ
 loop do # キューが空になるまで繰り返す
@@ -160,6 +160,6 @@ loop do # キューが空になるまで繰り返す
     end
 
     # 実際にキューの先頭を削除
-    delete_from_queue.execute(queue_id)
+    pop_queue.execute
   end
 end
