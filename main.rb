@@ -146,6 +146,7 @@ loop do # キューが空になるまで繰り返す
       following.value & followers.value
     rescue Twitter::Error::Unauthorized # リクエスト失敗時
       STDERR.puts("unauthorized request for user #{v}; maybe a protected user")
+      pop_queue.execute
       next
     end
 
