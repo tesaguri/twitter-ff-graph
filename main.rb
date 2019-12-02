@@ -90,11 +90,13 @@ end
 # followers = handle.value
 # ```
 def cursor_to_a
-  Thread.new do
+  t = Thread.new do
     # `yield` は与えられたブロックを実行するキーワード
     cursor = catch_rate_limit { yield }
     catch_rate_limit { cursor.to_a } # カーソルから値を取り出して配列にする
   end
+  t.report_on_exception = false if t.respond_to?(:report_on_exception=)
+  t
 end
 
 ## レートリミットの解消を待ちながら与えられたブロックを実行するメソッド。
