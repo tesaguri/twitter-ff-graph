@@ -45,7 +45,7 @@ if is_first_run
       CREATE TABLE queue (
         -- 内部 ID。先入れ先出しを実現するために挿入タイミングの昇順に番号づけする
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-        user_id BIGINT
+        user_id BIGINT NOT NULL
       );
     SQL
 
