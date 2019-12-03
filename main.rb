@@ -33,7 +33,11 @@ if is_first_run
       CREATE TABLE users (
         id INTEGER NOT NULL PRIMARY KEY,
         -- 初期頂点からの距離
-        distance INTEGER NOT NULL
+        distance INTEGER NOT NULL,
+        -- フォロー数
+        friends_count INTEGER,
+        -- フォロワー数
+        followers_count INTEGER
       );
     SQL
     db.execute <<-SQL
@@ -124,6 +128,11 @@ first_user_in_queue = db.prepare <<-SQL
     LIMIT 1
 SQL
 pop_queue = db.prepare('DELETE FROM queue where id == (SELECT MIN(id) FROM queue)')
+set_friends_followers_count = db.prepare <<-SQL
+  UPDATE users
+    SET friends_count = ?2, followers_count = ?3
+    WHERE id = ?1
+SQL
 add_edge = db.prepare('REPLACE INTO edges VALUES (?, ?)')
 is_in_users = db.prepare('SELECT EXISTS (SELECT * FROM users WHERE id == ?)')
 add_user = db.prepare('INSERT INTO users (id, distance) VALUES (?, ?)')
@@ -148,8 +157,11 @@ loop do # キューが空になるまで繰り返す
       # `v` がフォローしているアカウントと `v` のフォロワーの ID を取得する
       following = cursor_to_a { client.friend_ids(v, count: 5000) }
       followers = cursor_to_a { client.follower_ids(v, count: 5000) }
-      # それらの共通部分をとる
-      following.value & followers.value
+      following, followers = following.value, followers.value
+      # フォロワー数とフォロー数を記録
+      set_friends_followers_count.execute(v, following.length, followers.length)
+
+      following & followers
     rescue Twitter::Error::Unauthorized # リクエスト失敗時
       STDERR.puts("unauthorized request for user #{v}; maybe a protected user")
       next
