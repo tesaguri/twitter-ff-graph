@@ -140,35 +140,34 @@ add_to_queue = db.prepare('INSERT INTO queue (user_id) VALUES (?)')
 
 # 探索のメインループ
 loop do # キューが空になるまで繰り返す
-  # キューの先頭の頂点を読む（まだ取り除かない）
+  # キューの先頭の頂点を読む（まだ取り除かない。削除は後のトランザクション内で行う）
   (v, d, queue_id) = first_user_in_queue.execute.first
   break unless v # キューが空なら終了
 
+  STDERR.puts("inspecting user: #{v}, d = #{d}")
+
+  # `v` がフォローしているアカウントと `v` のフォロワーの ID を取得する
+  (following, followers) = begin
+    following = cursor_to_a { client.friend_ids(v, count: 5000) }
+    followers = cursor_to_a { client.follower_ids(v, count: 5000) }
+    [following.value, followers.value]
+  rescue Twitter::Error::Unauthorized # リクエスト失敗時
+    STDERR.puts("unauthorized request for user #{v}; maybe a protected user")
+    pop_queue.execute
+    next
+  end
+
+  # トランザクション開始
   db.transaction
   rollback = false
   begin
     # 実際にキューの先頭を削除
     pop_queue.execute
-
-    STDERR.puts("inspecting user: #{v}, d = #{d}")
-
-    # `v` の相互フォローのアカウントを集める
-    ff = begin
-      # `v` がフォローしているアカウントと `v` のフォロワーの ID を取得する
-      following = cursor_to_a { client.friend_ids(v, count: 5000) }
-      followers = cursor_to_a { client.follower_ids(v, count: 5000) }
-      following, followers = following.value, followers.value
-      # フォロワー数とフォロー数を記録
-      set_friends_followers_count.execute(v, following.length, followers.length)
-
-      following & followers
-    rescue Twitter::Error::Unauthorized # リクエスト失敗時
-      STDERR.puts("unauthorized request for user #{v}; maybe a protected user")
-      next
-    end
+    # フォロー数とフォロワー数を記録
+    set_friends_followers_count.execute(v, following.length, followers.length)
 
     # 各相互フォロワー `w` について
-    ff.each do |w|
+    (following & followers).each do |w|
       # 辺リストに追加
       add_edge.execute(*[v, w].sort)
       if is_in_users.execute(w).first == [0] # 未探索ならば
