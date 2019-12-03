@@ -123,11 +123,11 @@ first_user_in_queue = db.prepare <<-SQL
     ORDER BY queue.id ASC
     LIMIT 1
 SQL
+pop_queue = db.prepare('DELETE FROM queue where id == (SELECT MIN(id) FROM queue)')
 add_edge = db.prepare('REPLACE INTO edges VALUES (?, ?)')
 is_in_users = db.prepare('SELECT EXISTS (SELECT * FROM users WHERE id == ?)')
 add_user = db.prepare('INSERT INTO users (id, distance) VALUES (?, ?)')
 add_to_queue = db.prepare('INSERT INTO queue (user_id) VALUES (?)')
-pop_queue = db.prepare('DELETE FROM queue where id == (SELECT MIN(id) FROM queue)')
 
 # 探索のメインループ
 loop do # キューが空になるまで繰り返す
@@ -135,7 +135,12 @@ loop do # キューが空になるまで繰り返す
   (v, d, queue_id) = first_user_in_queue.execute.first
   break unless v # キューが空なら終了
 
-  db.transaction do
+  db.transaction
+  rollback = false
+  begin
+    # 実際にキューの先頭を削除
+    pop_queue.execute
+
     STDERR.puts("inspecting user: #{v}, d = #{d}")
 
     # `v` の相互フォローのアカウントを集める
@@ -147,7 +152,6 @@ loop do # キューが空になるまで繰り返す
       following.value & followers.value
     rescue Twitter::Error::Unauthorized # リクエスト失敗時
       STDERR.puts("unauthorized request for user #{v}; maybe a protected user")
-      pop_queue.execute
       next
     end
 
@@ -160,8 +164,16 @@ loop do # キューが空になるまで繰り返す
         add_to_queue.execute(w) # キューに追加
       end
     end
-
-    # 実際にキューの先頭を削除
-    pop_queue.execute
+  rescue Exception
+    # `Database#transaction` にもブロックを受け取って例外時にロールバックする機能があるが
+    # `StandardError` 以外の例外（`Interrupt` など）だと正しくロールバックされないため、ここでは自前で処理する
+    rollback = true
+    raise
+  ensure
+    if rollback
+      db.rollback
+    else
+      db.commit
+    end
   end
 end
