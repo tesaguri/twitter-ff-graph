@@ -46,7 +46,8 @@ if is_first_run
         id INTEGER NOT NULL PRIMARY KEY, -- ユーザ ID
         distance INTEGER NOT NULL, -- 初期頂点からの距離
         friends_count INTEGER, -- フォロー数
-        followers_count INTEGER -- フォロワー数
+        followers_count INTEGER, -- フォロワー数
+        accessible INTEGER -- アクセス可能かの真偽値。非公開アカウント等では `0` とする
       );
     SQL
     db.execute <<-SQL
@@ -124,6 +125,11 @@ peek_queue = db.prepare <<-SQL
     ORDER BY queue.id ASC
     LIMIT 1
 SQL
+set_accessibility = db.prepare <<-SQL
+  UPDATE users
+    SET accessible = ?2
+    WHERE id = ?1
+SQL
 dequeue = db.prepare('DELETE FROM queue where id == (SELECT MIN(id) FROM queue)')
 set_friends_followers_count = db.prepare <<-SQL
   UPDATE users
@@ -150,9 +156,11 @@ loop do # キューが空になるまで繰り返す
     [following.value, followers.value]
   rescue Twitter::Error::Unauthorized
     STDERR.puts("unauthorized request for user #{v}; maybe a protected user")
+    set_accessibility.execute(v, 0)
     dequeue.execute
     next
   end
+  set_accessibility.execute(v, 1)
 
   db.transaction
   rollback = false
