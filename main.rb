@@ -1,11 +1,23 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Twitter 上のあるアカウントから出発し、その相互フォロー関係を幅優先でたどって辺リストを得る。
+## Twitter 上のあるアカウントから出発し、その相互フォロー関係を幅優先でたどって辺リストを得る。
+#
+# 結果は `db.sqlite3` に後述のスキーマに基づいて出力する。
+#
+# API キーは `credentials.json` から取得する。形式は以下の通り。
+# ```json
+# {
+#   "consumer_key": : "...",
+#   "consumer_secret": "...",
+#   "access_token": "...",
+#   "access_token_secret": "..."
+# }
+# ````
 
 require 'set'
-require 'sqlite3' # gem install sqlite3
-require 'twitter' # gem install twitter
+require 'sqlite3'
+require 'twitter'
 
 
 DB_PATH = 'db.sqlite3'
@@ -31,13 +43,10 @@ if is_first_run
     db.execute <<-SQL
       -- 訪問済み頂点
       CREATE TABLE users (
-        id INTEGER NOT NULL PRIMARY KEY,
-        -- 初期頂点からの距離
-        distance INTEGER NOT NULL,
-        -- フォロー数
-        friends_count INTEGER,
-        -- フォロワー数
-        followers_count INTEGER
+        id INTEGER NOT NULL PRIMARY KEY, -- ユーザ ID
+        distance INTEGER NOT NULL, -- 初期頂点からの距離
+        friends_count INTEGER, -- フォロー数
+        followers_count INTEGER -- フォロワー数
       );
     SQL
     db.execute <<-SQL
@@ -59,8 +68,7 @@ if is_first_run
 end
 
 
-# Twitter API にアクセスするためのオブジェクトを用意する
-credentials = open('credentials.json') {|f| JSON.load(f) } # ログイン情報
+credentials = open('credentials.json') {|f| JSON.load(f) }
 client = Twitter::REST::Client.new do |config|
   config.consumer_key = credentials['consumer_key']
   config.consumer_secret = credentials['consumer_secret']
@@ -71,46 +79,34 @@ end
 
 # ヘルパーメソッドの定義
 
-## 値の列を返す API から 値を取得するためのメソッド。
+## 与えられたブロックを実行し、ブロックから返ってきた cursor から値を全て取り出して配列にまとめる。
+# また、その過程でレートリミットに到達した場合に適宜スリープしてからリトライする。
 #
-# 値の列を返す API では一般には一度のリクエストで全ての値を読み切ることができないので、
-# そのような API は一般に「カーソル」と呼ばれるオブジェクトを返す。カーソルは現在どこまで
-# 読み進めているかなどの情報を含み、API の利用者はこれを使って API を次々に呼び出して値を
-# 集める。
-#
-# このメソッドは与えられたブロック（クロージャ、無名関数）を実行し、ブロックから返ってきた
-# カーソルから値を全て取り出して配列にまとめる。また、その過程で API 制限（レートリミット）に
-# 到達した場合に適宜スリープしてリトライする。
-#
-# スリープ中の時間を有効に使うために上記の処理は別スレッドで実行し、このメソッドは
-# そのスレッドのハンドルを返す。
+# スリープ中の時間を有効に使うために上記の処理は別スレッドで実行し、このメソッドはそのスレッドのハンドルを返す。
 #
 # # 利用例
 #
 # ```
-# # `user` のフォロワーの取得を試みる。この時点でメインスレッドはスリープしない
 # handle = cursor_to_a { client.followers(user) }
 # # ...
-# # スレッドの終了を待ってから値を取り出す
 # followers = handle.value
 # ```
 def cursor_to_a
   t = Thread.new do
-    # `yield` は与えられたブロックを実行するキーワード
     cursor = catch_rate_limit { yield }
-    catch_rate_limit { cursor.to_a } # カーソルから値を取り出して配列にする
+    catch_rate_limit { cursor.to_a }
   end
   t.report_on_exception = false if t.respond_to?(:report_on_exception=)
   t
 end
 
-## レートリミットの解消を待ちながら与えられたブロックを実行するメソッド。
+## レートリミットの解消を待ちながら与えられたブロックを実行する。
 def catch_rate_limit
-  begin # (begin-rescue は try-catch に相当)
+  begin
     yield
-  rescue Twitter::Error::TooManyRequests => e # レートリミットの例外
-    t = e.rate_limit.reset_in # 制限が解除されるまでの秒数
-    STDERR.puts("sleep: #{t} secs") # ログ出力
+  rescue Twitter::Error::TooManyRequests => e
+    t = e.rate_limit.reset_in
+    STDERR.puts("sleep: #{t} secs")
     sleep(t + 1) # サーバの時計とのズレなどを考慮して 1 秒余分にスリープ
     retry
   end
@@ -120,59 +116,57 @@ end
 # メイン処理
 
 # プリペアドステートメントの用意
-first_user_in_queue = db.prepare <<-SQL
+# キューの先頭の要素をデキューせずに読む
+peek_queue = db.prepare <<-SQL
   SELECT users.id, users.distance, queue.id
     FROM users
     JOIN queue ON users.id == queue.user_id
     ORDER BY queue.id ASC
     LIMIT 1
 SQL
-pop_queue = db.prepare('DELETE FROM queue where id == (SELECT MIN(id) FROM queue)')
+dequeue = db.prepare('DELETE FROM queue where id == (SELECT MIN(id) FROM queue)')
 set_friends_followers_count = db.prepare <<-SQL
   UPDATE users
     SET friends_count = ?2, followers_count = ?3
     WHERE id = ?1
 SQL
 add_edge = db.prepare('REPLACE INTO edges VALUES (?, ?)')
-is_in_users = db.prepare('SELECT EXISTS (SELECT * FROM users WHERE id == ?)')
+user_is_visited = db.prepare('SELECT EXISTS (SELECT * FROM users WHERE id == ?)')
 add_user = db.prepare('INSERT INTO users (id, distance) VALUES (?, ?)')
-add_to_queue = db.prepare('INSERT INTO queue (user_id) VALUES (?)')
+enqueue = db.prepare('INSERT INTO queue (user_id) VALUES (?)')
 
 # 探索のメインループ
 loop do # キューが空になるまで繰り返す
-  # キューの先頭の頂点を読む（まだ取り除かない。削除は後のトランザクション内で行う）
-  (v, d, queue_id) = first_user_in_queue.execute.first
+  # キューの先頭の頂点を読む（デキューは後のトランザクション内で行う）
+  (v, d, queue_id) = peek_queue.execute.first
   break unless v # キューが空なら終了
 
   STDERR.puts("inspecting user: #{v}, d = #{d}")
 
-  # `v` がフォローしているアカウントと `v` のフォロワーの ID を取得する
+  # `v` のフォロー・フォロワーの ID を取得
   (following, followers) = begin
     following = cursor_to_a { client.friend_ids(v, count: 5000) }
     followers = cursor_to_a { client.follower_ids(v, count: 5000) }
     [following.value, followers.value]
-  rescue Twitter::Error::Unauthorized # リクエスト失敗時
+  rescue Twitter::Error::Unauthorized
     STDERR.puts("unauthorized request for user #{v}; maybe a protected user")
-    pop_queue.execute
+    dequeue.execute
     next
   end
 
-  # トランザクション開始
   db.transaction
   rollback = false
   begin
-    # 実際にキューの先頭を削除
-    pop_queue.execute
-    # フォロー数とフォロワー数を記録
+    dequeue.execute
     set_friends_followers_count.execute(v, following.length, followers.length)
 
-    # 各相互フォロワー `w` について
+    # 各相互フォロワーについて
     (following & followers).each do |w|
-      # 辺リストに追加
       add_edge.execute(*[v, w].sort)
-      if is_in_users.execute(w).first == [0] # 未探索ならば
-        add_user.execute(w, d + 1) # 頂点集合と
-        add_to_queue.execute(w) # キューに追加
+      if user_is_visited.execute(w).first == [0] # 未探索ならば
+        # 頂点集合とキューに追加
+        add_user.execute(w, d + 1)
+        enqueue.execute(w)
       end
     end
   rescue Exception
