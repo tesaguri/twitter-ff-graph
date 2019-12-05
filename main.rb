@@ -106,7 +106,7 @@ end
 
 def now_ns
   now = Time.now
-  now.to_i * (10 ** 9) + time.nsec
+  now.to_i * (10 ** 9) + now.nsec
 end
 
 
