@@ -113,6 +113,27 @@ def catch_rate_limit
   end
 end
 
+## データベースコネクションとブロックを受け取り、トランザクション内でブロックを実行する。
+#
+# `Database#transaction` にも同様の機能があるが`StandardError` 以外の例外（`Interrupt` など）時に
+# 正しくロールバックされないため、ここでは自前で処理する。
+def transaction(db)
+  rollback = false
+  db.transaction
+  begin
+    yield db
+  rescue Exception
+    rollback = true
+    raise
+  ensure
+    if rollback
+      db.rollback
+    else
+      db.commit
+    end
+  end
+end
+
 
 # メイン処理
 
@@ -162,9 +183,7 @@ loop do # キューが空になるまで繰り返す
   end
   set_accessibility.execute(v, 1)
 
-  db.transaction
-  rollback = false
-  begin
+  transaction(db) do
     dequeue.execute
     set_friends_followers_count.execute(v, following.length, followers.length)
 
@@ -176,17 +195,6 @@ loop do # キューが空になるまで繰り返す
         add_user.execute(w, d + 1)
         enqueue.execute(w)
       end
-    end
-  rescue Exception
-    # `Database#transaction` にもブロックを受け取って例外時にロールバックする機能があるが
-    # `StandardError` 以外の例外（`Interrupt` など）だと正しくロールバックされないため、ここでは自前で処理する
-    rollback = true
-    raise
-  ensure
-    if rollback
-      db.rollback
-    else
-      db.commit
     end
   end
 end
