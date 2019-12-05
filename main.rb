@@ -162,5 +162,5 @@ until followers.empty?
     STDERR.puts("user has been deleted: #{user}")
     set_accessibility.execute(follower, 0)
   end
-  set_inspected_at.execute(user, now_ns)
+  set_inspected_at.execute(follower, now_ns)
 end
