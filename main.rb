@@ -140,7 +140,7 @@ end
 # プリペアドステートメントの用意
 # キューの先頭の要素をデキューせずに読む
 peek_queue = db.prepare <<-SQL
-  SELECT users.id, users.distance, queue.id
+  SELECT users.id, users.distance
     FROM users
     JOIN queue ON users.id == queue.user_id
     ORDER BY queue.id ASC
@@ -165,7 +165,7 @@ enqueue = db.prepare('INSERT INTO queue (user_id) VALUES (?)')
 # 探索のメインループ
 loop do # キューが空になるまで繰り返す
   # キューの先頭の頂点を読む（デキューは後のトランザクション内で行う）
-  (v, d, queue_id) = peek_queue.execute.first
+  (v, d) = peek_queue.execute.first
   break unless v # キューが空なら終了
 
   STDERR.puts("inspecting user: #{v}, d = #{d}")
