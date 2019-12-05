@@ -136,14 +136,14 @@ else
   STDERR.puts("user is already inspected: #{user}")
 end
 
-followers = db.prepare(<<-SQL, user).execute.map {|(id)| id}
+followers = db.prepare(<<-SQL).execute(user).map {|(id)| id}
   SELECT friendships.follower
     FROM friendships
     JOIN users ON friendships.follower == users.id
-    WHERE users.inspected_at IS NOT NULL
+    WHERE friendships.friend == ? AND users.inspected_at IS NULL
 SQL
 until followers.empty?
-  follower = followers.delete_at(SecureRandom.rand(followers.length))
+  follower = followers.delete_at(SecureRandom.random_number(followers.length))
 
   # XXX: 重複コード
   STDERR.puts("inspecting user: #{follower}")
