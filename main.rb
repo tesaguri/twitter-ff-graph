@@ -47,8 +47,6 @@ if is_first_run
       -- 訪問済み頂点
       CREATE TABLE users (
         id INTEGER NOT NULL PRIMARY KEY, -- ユーザ ID
-        friends_count INTEGER, -- フォロー数
-        followers_count INTEGER, -- フォロワー数
         got_followers_at INTEGER, -- フォロワーの情報を取得した時刻（ナノ秒精度の UNIX time）
         got_friends_at INTEGER, -- フォローの情報を取得した時刻
         accessible INTEGER -- アクセス可能かの真偽値。非公開アカウント等では `0` とする
