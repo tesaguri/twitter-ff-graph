@@ -62,8 +62,9 @@ end
 # コマンドライン引数に指定された ID をターゲットとして追加
 unless ARGV.empty?
   users = ARGV.map {|arg| Integer(arg) }
-  db.execute('INSERT INTO users (id) VALUES ' + ['(?)'] * users.length, users)
-  db.execute('INSERT INTO targets (id) VALUES ' + ['(?)'] * users.length, users)
+  values = (['(?)'] * users.length).join(',')
+  db.execute('INSERT INTO users (id) VALUES ' + values, users)
+  db.execute('INSERT INTO targets (id) VALUES ' + values, users)
 end
 
 credentials = open('credentials.json') {|f| JSON.load(f) }
@@ -133,11 +134,10 @@ target_status = db.prepare <<-SQL
   SELECT
       targets.id,
       (SELECT COUNT() FROM friendships WHERE friend == targets.id), -- ターゲットのフォロワー数
-      (
+      ( -- ターゲットのフォロワーのうちフォローが未取得であるものの数
         SELECT COUNT() FROM friendships
-          WHERE friend == targets.id -- ターゲットのフォロワーのうち
           JOIN users ON users.id == follower
-          WHERE users.got_friends_at IS NULL -- フォローが未取得であるものの数
+          WHERE friend == targets.id AND users.got_friends_at IS NULL
       )
     FROM targets
 SQL
@@ -150,7 +150,11 @@ uninspected_follower_of_at = db.prepare <<-SQL
     LIMIT ?, 1
 SQL
 
-targets = db.execute('SELECT id, got_followers_at FROM targets')
+targets = db.execute(<<-SQL)
+  SELECT targets.id, users.got_followers_at
+    FROM targets
+    JOIN users ON users.id == targets.id
+SQL
 
 targets.each do |(user, got_followers_at)|
   if !got_followers_at # フォロワーが未収集
