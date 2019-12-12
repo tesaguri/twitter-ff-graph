@@ -148,12 +148,14 @@ targets.each do |(user, got_followers_at)|
   if !got_followers_at # フォロワーが未収集
     STDERR.puts("inspecting target: #{user}")
     cursor = catch_rate_limit { client.follower_ids(user, count: 5000) }.each
-    loop do
-      follower = catch_rate_limit { cursor.next }
-      add_user.execute(follower)
-      add_friendship.execute(follower, user)
+    transaction(db) do
+      loop do
+        follower = catch_rate_limit { cursor.next }
+        add_user.execute(follower)
+        add_friendship.execute(follower, user)
+      end
+      set_got_followers_at.execute(user, now_ns)
     end
-    set_got_followers_at.execute(user, now_ns)
   else
     STDERR.puts("target is already inspected: #{user}")
   end
@@ -173,22 +175,22 @@ until uninspected_count == 0
 
   # XXX: 重複コード
   STDERR.puts("inspecting follower: #{follower}")
-  begin
-    cursor = catch_rate_limit { client.friend_ids(follower, count: 5000) }.each
-    loop do
-      friend = catch_rate_limit { cursor.next }
-      add_user.execute(friend)
-      add_friendship.execute(follower, friend)
+  transaction(db) do
+    begin
+      cursor = catch_rate_limit { client.friend_ids(follower, count: 5000) }.each
+      loop do
+        friend = catch_rate_limit { cursor.next }
+        add_user.execute(friend)
+        add_friendship.execute(follower, friend)
+      end
+    rescue Twitter::Error::Unauthorized
+      STDERR.puts("unauthorized request for user #{follower}; maybe a protected user")
+      set_accessibility.execute(follower, 0)
+    rescue Twitter::Error::NotFound
+      STDERR.puts("user has been deleted: #{user}")
+      set_accessibility.execute(follower, 0)
     end
-  rescue Twitter::Error::Unauthorized
-    STDERR.puts("unauthorized request for user #{follower}; maybe a protected user")
-    set_accessibility.execute(follower, 0)
-    next
-  rescue Twitter::Error::NotFound
-    STDERR.puts("user has been deleted: #{user}")
-    set_accessibility.execute(follower, 0)
+    set_got_friends_at.execute(follower, now_ns)
   end
-
-  set_got_friends_at.execute(follower, now_ns)
   uninspected_count -= 1
 end
