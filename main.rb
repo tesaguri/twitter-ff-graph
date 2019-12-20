@@ -30,26 +30,26 @@ db = SQLite3::Database.new(DB_PATH)
 if is_first_run
   begin
     db.execute <<~SQL
-      -- 収集対象のアカウント（ターゲット）
-      CREATE TABLE targets (
-        id INTEGER NOT NULL PRIMARY KEY
-      );
-    SQL
-    db.execute <<~SQL
-      -- フォロー関係
-      CREATE TABLE friendships (
-        follower BIGINT NOT NULL, -- フォロワー
-        friend BIGINT NOT NULL, -- 被フォロー
-        CONSTRAINT simple UNIQUE (follower, friend)
-      );
-    SQL
-    db.execute <<~SQL
       -- 訪問済み頂点
       CREATE TABLE users (
         id INTEGER NOT NULL PRIMARY KEY, -- ユーザ ID
         got_followers_at INTEGER, -- フォロワーの情報を取得した時刻（ナノ秒精度の UNIX time）
         got_friends_at INTEGER, -- フォローの情報を取得した時刻
         accessible INTEGER -- アクセス可能かの真偽値。非公開アカウント等では `0` とする
+      );
+    SQL
+    db.execute <<~SQL
+      -- 収集対象のアカウント（ターゲット）
+      CREATE TABLE targets (
+        id INTEGER NOT NULL PRIMARY KEY REFERENCES users(id)
+      );
+    SQL
+    db.execute <<~SQL
+      -- フォロー関係
+      CREATE TABLE friendships (
+        follower BIGINT NOT NULL REFERENCES users(id), -- フォロワー
+        friend BIGINT NOT NULL REFERENCES users(id), -- 被フォロー
+        CONSTRAINT simple UNIQUE (follower, friend)
       );
     SQL
   rescue
