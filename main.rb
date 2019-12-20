@@ -29,13 +29,13 @@ db = SQLite3::Database.new(DB_PATH)
 # 初回起動時にデータベースを初期化
 if is_first_run
   begin
-    db.execute <<-SQL
+    db.execute <<~SQL
       -- 収集対象のアカウント（ターゲット）
       CREATE TABLE targets (
         id INTEGER NOT NULL PRIMARY KEY
       );
     SQL
-    db.execute <<-SQL
+    db.execute <<~SQL
       -- フォロー関係
       CREATE TABLE friendships (
         follower BIGINT NOT NULL, -- フォロワー
@@ -43,7 +43,7 @@ if is_first_run
         CONSTRAINT simple UNIQUE (follower, friend)
       );
     SQL
-    db.execute <<-SQL
+    db.execute <<~SQL
       -- 訪問済み頂点
       CREATE TABLE users (
         id INTEGER NOT NULL PRIMARY KEY, -- ユーザ ID
@@ -120,7 +120,7 @@ end
 # メイン処理
 
 # プリペアドステートメントの用意
-set_accessibility = db.prepare <<-SQL
+set_accessibility = db.prepare <<~SQL
   UPDATE users
     SET accessible = ?2
     WHERE id = ?1
@@ -130,7 +130,7 @@ add_user = db.prepare('INSERT OR IGNORE INTO users (id) VALUES (?)')
 set_got_followers_at = db.prepare('UPDATE users SET got_followers_at = ?2 WHERE id == ?1')
 set_got_friends_at = db.prepare('UPDATE users SET got_friends_at = ?2 WHERE id == ?1')
 # ターゲットのフォロワーのうち、そのフォローが未収集であるものの中から、指定された位置にあるものを返す
-uninspected_follower_at = db.prepare <<-SQL
+uninspected_follower_at = db.prepare <<~SQL
   SELECT DISTINCT follower
     FROM friendships
     JOIN users ON follower == users.id
@@ -138,7 +138,7 @@ uninspected_follower_at = db.prepare <<-SQL
     LIMIT ?, 1
 SQL
 
-targets = db.execute(<<-SQL)
+targets = db.execute(<<~SQL)
   SELECT targets.id, users.got_followers_at
     FROM targets
     JOIN users ON users.id == targets.id
@@ -161,7 +161,7 @@ targets.each do |(user, got_followers_at)|
   end
 end
 
-uninspected_count = db.execute(<<-SQL).first.first
+uninspected_count = db.execute(<<~SQL).first.first
   SELECT COUNT(DISTINCT follower)
     FROM friendships
     JOIN users ON follower == users.id
