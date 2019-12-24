@@ -49,7 +49,7 @@ if is_first_run
       CREATE TABLE friendships (
         follower BIGINT NOT NULL REFERENCES users(id), -- フォロワー
         friend BIGINT NOT NULL REFERENCES users(id), -- 被フォロー
-        CONSTRAINT simple UNIQUE (follower, friend)
+        PRIMARY KEY (follower, friend)
       );
     SQL
   rescue
